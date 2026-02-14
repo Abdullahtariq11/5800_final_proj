@@ -15,6 +15,7 @@ from .constants import (
     DEFAULT_MEMORY_LIMIT,
     HEX_DIRECTIONS
 )
+from .protocol import Protocol, ProtocolError
 
 __all__ = [
     'HexBoard',
@@ -27,5 +28,7 @@ __all__ = [
     'DEFAULT_TIME_LIMIT',
     'DEFAULT_CPU_LIMIT',
     'DEFAULT_MEMORY_LIMIT',
-    'HEX_DIRECTIONS'
+    'HEX_DIRECTIONS',
+    'Protocol',
+    'ProtocolError'
 ]
