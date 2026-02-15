@@ -1,2 +1,0 @@
-# Student Alice's submission
-
