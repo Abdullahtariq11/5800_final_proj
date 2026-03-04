@@ -532,7 +532,18 @@ All flags (`--board-size`, `--timeout`, `--memory-limit`, `--red-subprocess`, `-
 
 ## 8. Constraints & Limits
 
-The time/ memory limitation on different board size is still under testing. Please make sure your algorithm can work under different board sizes without too much time/ memory usage.
+The time/ memory limitation on different boards ize is still under testing. Please make sure your algorithm can work under different board sizes without too much time/ memory usage.
+
+Time per move:
+11×11: 150 ms
+15×15: 200 ms
+19×19: 250 ms
+21×21: 300 ms
+
+Memory
+All sizes: 64 MB
+
+**Please use the flag system to change the boardsize and limitations on time & memory.**
 
 ---
 
