@@ -27,7 +27,7 @@ public class MyAgentAttemptThree {
     private static final int BLUE = 2;
     private static final int[][] DIRECTIONS = {
         {-1, 1}, {1, -1}, {0, 1}, {1, 0}, {0, -1}, {-1, 0}
-    }
+    };
     private static final Random RAND = new Random();
     private static Object[] parseBoard(String line) {
         String[] parts = line.split(" ", 3);
@@ -43,9 +43,9 @@ public class MyAgentAttemptThree {
             String[] movesStr = parts[2].split(",");
             for (String move : movesStr) {
                 String[] moveParts = move.split(":");
-                int row = Integer.parseInt(moveParts[0]);
-                int col = Integer.parseInt(moveParts[1]);
-                String color = moveParts[2].equals("R") ? RED : BLUE;
+                int r = Integer.parseInt(moveParts[0]);
+                int c = Integer.parseInt(moveParts[1]);
+                board[r][c] = moveParts[2].equals("R") ? RED : BLUE;
                 pieceCount++;
             }
         }
