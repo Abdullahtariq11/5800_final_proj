@@ -22,26 +22,35 @@ public class MyAgentAttemptThree {
      * 
      * @return Object array: [size(int), myColor(String), board(Map)]
      */
+    private static final int EMPTY = 0;
+    private static final int RED = 1;
+    private static final int BLUE = 2;
+    private static final int[][] DIRECTIONS = {
+        {-1, 1}, {1, -1}, {0, 1}, {1, 0}, {0, -1}, {-1, 0}
+    }
+    private static final Random RAND = new Random();
     private static Object[] parseBoard(String line) {
         String[] parts = line.split(" ", 3);
 
         int size = Integer.parseInt(parts[0]);
-        String myColor = parts[1]; // "RED" or "BLUE"
+        int myColor = parts[1].equals("RED") ? RED : BLUE;
+
+        int [][]board = new int[size][size];
+        int pieceCount = 0;
 
         // Parse existing moves
-        Map<String, String> board = new HashMap<>();
         if (parts.length == 3 && !parts[2].isEmpty()) {
-            String movesStr = parts[2];
-            for (String move : movesStr.split(",")) {
+            String[] movesStr = parts[2].split(",");
+            for (String move : movesStr) {
                 String[] moveParts = move.split(":");
                 int row = Integer.parseInt(moveParts[0]);
                 int col = Integer.parseInt(moveParts[1]);
-                String color = moveParts[2];
-                board.put(row + "," + col, color);
+                String color = moveParts[2].equals("R") ? RED : BLUE;
+                pieceCount++;
             }
         }
 
-        return new Object[] { size, myColor, board };
+        return new Object[] { size, myColor, board, pieceCount };
     }
 
     /**
