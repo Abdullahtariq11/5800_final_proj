@@ -132,7 +132,6 @@ public class MyAgentAttemptThree {
 
         while (System.currentTimeMillis() - startTime < timeLimit) {
             for (int i = 0; i < emptyCount; i++) {
-                if (System.currentTimeMillis() - startTime >= timeLimit) break;
                 int spot = emptySpots[i];
                 int r = spot / size;
                 int c = spot % size;
