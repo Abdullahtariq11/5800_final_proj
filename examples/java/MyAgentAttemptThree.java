@@ -1,26 +1,19 @@
 import java.util.*;
 
 /**
- * Simple random Hex agent - Java example.
- * 
- * SIMPLIFIED VERSION - Just one function!
- * 
- * Your agent receives ONE line:
+ * The agent receives ONE line:
  * <SIZE> <YOUR_COLOR> <MOVES>
  * Example: 11 RED 5:5:B,6:6:R
- * 
  * Your agent outputs ONE line:
  * <ROW> <COL>
  * Example: 7 7
- * 
  * That's it! No need to track state, handle errors, or manage game flow.
  */
 public class MyAgentAttemptThree {
 
     /**
      * Parse the board state from input line.
-     * 
-     * @return Object array: [size(int), myColor(String), board(Map)]
+     * Return Object array: [size(int), myColor(String), board(Map)]
      */
     private static final int EMPTY = 0;
     private static final int RED = 1;
@@ -51,23 +44,6 @@ public class MyAgentAttemptThree {
         }
 
         return new Object[] { size, myColor, board, pieceCount };
-    }
-
-    /**
-     * Get all empty cells on the board.
-     */
-    private static List<int[]> getEmptyCells(int size, Map<String, String> board) {
-        List<int[]> empty = new ArrayList<>();
-
-        for (int row = 0; row < size; row++) {
-            for (int col = 0; col < size; col++) {
-                if (!board.containsKey(row + "," + col)) {
-                    empty.add(new int[] { row, col });
-                }
-            }
-        }
-
-        return empty;
     }
 
     private static boolean checkWin(int size, int[][] board) {
@@ -207,22 +183,21 @@ public class MyAgentAttemptThree {
             // Loop version - handles multiple moves
             String line;
             while ((line = reader.readLine()) != null) {
-                // Parse it
                 Object[] parsed = parseBoard(line);
                 int size = (int) parsed[0];
-                String myColor = (String) parsed[1];
-                @SuppressWarnings("unchecked")
-                Map<String, String> board = (Map<String, String>) parsed[2];
+                int myColor = (int) parsed[1];
+                int[][] board = (int[][]) parsed[2];
+                int pieceCount = (int) parsed[3];
 
-                // Handles first turn logic
-                if (myColor.equals("BLUE") && board.size() == 1) {
+                // Update swap rule (int ver.)
+                if (myColor == BLUE && pieceCount == 1) {
                     System.out.println("swap");
                     System.out.flush();
                     continue;
                 }
 
                 // Choose your move
-                int[] move = chooseMove(size, myColor, board);
+                int[] move = chooseMove(size, myColor, board, pieceCount);
 
                 // Output your move (don't forget to flush!)
                 System.out.println(move[0] + " " + move[1]);
