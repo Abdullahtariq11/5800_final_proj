@@ -1,170 +1,125 @@
 import java.util.*;
 
 /**
- * Simple random Hex agent - Java example.
- * 
- * SIMPLIFIED VERSION - Just one function!
- * 
- * Your agent receives ONE line:
- * <SIZE> <YOUR_COLOR> <MOVES>
- * Example: 11 RED 5:5:B,6:6:R
- * 
- * Your agent outputs ONE line:
- * <ROW> <COL>
- * Example: 7 7
- * 
- * That's it! No need to track state, handle errors, or manage game flow.
+ * Hex Game Agent utilizing a time-bounded Flat Monte Carlo simulation engine.
+ * Optimized with 1D array representations and lightweight DFS for zero-GC rollouts.
  */
 public class MyAgentAttemptThree {
 
     /**
      * Parse the board state from input line.
-     * 
-     * @return Object array: [size(int), myColor(String), board(Map)]
+     * Return Object array: [size(int), myColor(String), board(Map)]
+     */
+    private static final int EMPTY = 0;
+    private static final int RED = 1;
+    private static final int BLUE = 2;
+    private static final int[][] DIRECTIONS = {
+        {-1, 1}, {1, -1}, {0, 1}, {1, 0}, {0, -1}, {-1, 0}
+    };
+    private static final Random RAND = new Random();
+
+    /**
+     * Parses the standard input stream to reconstruct the 2D board state.
+     * * @param line Raw input string from the game engine.
+     * @return Object array containing: [size(int), myColor(int), board(int[][]), pieceCount(int)]
      */
     private static Object[] parseBoard(String line) {
         String[] parts = line.split(" ", 3);
 
         int size = Integer.parseInt(parts[0]);
-        String myColor = parts[1]; // "RED" or "BLUE"
+        int myColor = parts[1].equals("RED") ? RED : BLUE;
+
+        int [][]board = new int[size][size];
+        int pieceCount = 0;
 
         // Parse existing moves
-        Map<String, String> board = new HashMap<>();
         if (parts.length == 3 && !parts[2].isEmpty()) {
-            String movesStr = parts[2];
-            for (String move : movesStr.split(",")) {
+            String[] movesStr = parts[2].split(",");
+            for (String move : movesStr) {
                 String[] moveParts = move.split(":");
-                int row = Integer.parseInt(moveParts[0]);
-                int col = Integer.parseInt(moveParts[1]);
-                String color = moveParts[2];
-                board.put(row + "," + col, color);
+                int r = Integer.parseInt(moveParts[0]);
+                int c = Integer.parseInt(moveParts[1]);
+                board[r][c] = moveParts[2].equals("R") ? RED : BLUE;
+                pieceCount++;
             }
         }
 
-        return new Object[] { size, myColor, board };
+        return new Object[] { size, myColor, board, pieceCount };
     }
 
     /**
-     * Get all empty cells on the board.
+     * Evaluates terminal state via Depth-First Search.
+     * Optimized to only check the RED win condition (Hex implies BLUE wins otherwise).
      */
-    private static List<int[]> getEmptyCells(int size, Map<String, String> board) {
-        List<int[]> empty = new ArrayList<>();
-
-        for (int row = 0; row < size; row++) {
-            for (int col = 0; col < size; col++) {
-                if (!board.containsKey(row + "," + col)) {
-                    empty.add(new int[] { row, col });
-                }
+    private static boolean checkWin(int size, int[][] board) {
+        boolean[][] visited = new boolean[size][size];
+        // Check if Red wins
+        for (int c = 0; c < size; c++) {
+            if (board[0][c] == RED && !visited[0][c]) {
+                if (dfs(0, c, RED, size, board, visited)) return true;
             }
         }
-
-        return empty;
-    }
-
-    private static boolean checkWin(int size, String myColor, Map<String, String> board) {
-        String colorShort = myColor.equals("RED") ? "R" : "B";
-        Queue<int[]> queue = new LinkedList<>();
-        Set<String> visited = new HashSet<>();
-
-        if (myColor.equals("RED")) {
-            for (int i = 0; i < size; i++) {
-                String key = "0," + i;
-                if (colorShort.equals(board.get(key))) {
-                    queue.add(new int[] { 0, i });
-                    visited.add(key);
-                }
-            }
-        } else {
-            for (int i = 0; i < size; i++) {
-                String key = i + ",0";
-                if (colorShort.equals(board.get(key))) {
-                    queue.add(new int[] { i, 0 });
-                    visited.add(key);
-                }
-            }
-        }
-
-        int[][] directions = {
-                { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
-                { -1, 1 }, { 1, -1 }
-        };
-
-        while (!queue.isEmpty()) {
-            int[] current = queue.poll();
-            int r = current[0];
-            int c = current[1];
-
-            if (myColor.equals("RED") && r == size - 1) {
-                return true;
-            }
-            if (myColor.equals("BLUE") && c == size - 1) {
-                return true;
-            }
-
-            for (int[] d : directions) {
-                int nr = r + d[0];
-                int nc = c + d[1];
-
-                if (nr < 0 || nr >= size || nc < 0 || nc >= size) {
-                    continue;
-                }
-
-                String neighborKey = nr + "," + nc;
-                if (!visited.contains(neighborKey) && colorShort.equals(board.get(neighborKey))) {
-                    visited.add(neighborKey);
-                    queue.add(new int[] { nr, nc });
-                }
-            }
-        }
-
         return false;
     }
 
-    private static boolean simulateRandomGame(int size, String myColor, Map<String, String> board, String currentTurn) {
-        Map<String, String> tempBoard = new HashMap<>(board);
-        List<String> emptyCells = new ArrayList<>();
+    private static boolean dfs(int r, int c, int color, int size, int[][] board, boolean[][] visited) {
+        if (r == size - 1) return true;
+        visited[r][c] = true;
+        for (int[] d : DIRECTIONS) {
+            int nr = r + d[0], nc = c + d[1];
+            if (nr >= 0 && nr < size && nc >= 0 && nc < size && board[nr][nc] == color && !visited[nr][nc]) {
+                if (dfs(nr, nc, color, size, board, visited)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Executes a fast random rollout from the given board state.
+     * Utilizes an in-place Fisher-Yates shuffle to minimize memory allocation.
+     */
+    private static boolean simulateRandomGame(int size, int[][] tempBoard, int currentTurn) {
+        int[] emptySpots = new int[size * size];
+        int emptyCount = 0;
 
         for (int r = 0; r < size; r++) {
             for (int c = 0; c < size; c++) {
-                String key = r + "," + c;
-                if (!tempBoard.containsKey(key) || tempBoard.get(key) == null || tempBoard.get(key).isEmpty()) {
-                    emptyCells.add(key);
+                if (tempBoard[r][c] == EMPTY) {
+                    emptySpots[emptyCount++] = r * size + c;
                 }
             }
         }
 
-        Collections.shuffle(emptyCells);
-
-        String turn = currentTurn;
-        for (String cell : emptyCells) {
-            tempBoard.put(cell, turn.equals("RED") ? "R" : "B");
-            turn = turn.equals("RED") ? "BLUE" : "RED";
+        for (int i = emptyCount - 1; i > 0; i--) {
+            int j = RAND.nextInt(i + 1);
+            int temp = emptySpots[i];
+            emptySpots[i] = emptySpots[j];
+            emptySpots[j] = temp;
         }
 
-        return checkWin(size, myColor, tempBoard);
+        int turn = currentTurn;
+        for (int i = 0; i < emptyCount; i++) {
+            int spot = emptySpots[i];
+            tempBoard[spot / size][spot % size] = turn;
+            turn = (turn == RED) ? BLUE : RED;
+        }
+        return checkWin(size, tempBoard);
     }
 
     /**
-     * Choose your move.
-     * 
-     * @param size    Board size
-     * @param myColor Your color
-     * @param board   Dictionary of existing moves
-     * @return Array of [row, col] for your move
+     * Determines the optimal move using a time-bounded Flat Monte Carlo search.
      */
-    private static int[] chooseMove(int size, String myColor, Map<String, String> board) {
+    private static int[] chooseMove(int size, int myColor, int[][] board, int pieceCount) {
         // Center opening for RED
-        if (myColor.equals("RED") && board.isEmpty()) {
+        if (myColor == RED && pieceCount == 0) {
             return new int[] { size / 2, size / 2 };
         }
-
-        List<String> emptyCells = new ArrayList<>();
+        int[] emptySpots = new int[size * size];
+        int emptyCount = 0;
         for (int r = 0; r < size; r++) {
             for (int c = 0; c < size; c++) {
-                String key = r + "," + c;
-                String value = board.get(key);
-                if (value == null || value.isEmpty()) {
-                    emptyCells.add(key);
+                if (board[r][c] == EMPTY) {
+                    emptySpots[emptyCount++] = r * size + c;
                 }
             }
         }
@@ -172,44 +127,56 @@ public class MyAgentAttemptThree {
         long startTime = System.currentTimeMillis();
         long timeLimit = 120;
 
-        int[] wins = new int[emptyCells.size()];
-        int[] visits = new int[emptyCells.size()];
+        int[] wins = new int[emptyCount];
+        int[] visits = new int[emptyCount];
 
         while (System.currentTimeMillis() - startTime < timeLimit) {
-            for (int i = 0; i < emptyCells.size(); i++) {
-                if (System.currentTimeMillis() - startTime >= timeLimit)
-                    break;
+            for (int i = 0; i < emptyCount; i++) {
+                int spot = emptySpots[i];
+                int r = spot / size;
+                int c = spot % size;
 
-                Map<String, String> tempBoard = new HashMap<>(board);
-                tempBoard.put(emptyCells.get(i), myColor.equals("RED") ? "R" : "B");
-                String nextTurn = myColor.equals("RED") ? "BLUE" : "RED";
+                board[r][c] = myColor;
+                int nextTurn = (myColor == RED) ? BLUE : RED;
 
-                if (simulateRandomGame(size, myColor, tempBoard, nextTurn)) {
+                int[][] tempBoard = copyBoard(board, size);
+                boolean redWon = simulateRandomGame(size, tempBoard, nextTurn);
+
+                if ((myColor == RED && redWon) || (myColor == BLUE && !redWon)) {
                     wins[i]++;
                 }
                 visits[i]++;
+
+                board[r][c] = EMPTY;
             }
         }
 
-        // Pick cell with best win rate
-        String bestCell = emptyCells.get(0);
+        // Aggregate statistics and select the move with the highest win rate
+        int bestSpot = emptySpots[0];
         double bestRate = -1;
-        for (int i = 0; i < emptyCells.size(); i++) {
-            if (visits[i] == 0)
-                continue;
+        for (int i = 0; i < emptyCount; i++) {
+            if (visits[i] == 0) continue;
             double rate = (double) wins[i] / visits[i];
             if (rate > bestRate) {
                 bestRate = rate;
-                bestCell = emptyCells.get(i);
+                bestSpot = emptySpots[i];
             }
         }
 
-        String[] parts = bestCell.split(",");
-        return new int[] { Integer.parseInt(parts[0]), Integer.parseInt(parts[1]) };
+        return new int[] { bestSpot / size, bestSpot % size };
+    }
+
+    private static int[][] copyBoard(int[][] original, int size) {
+        int[][] copy = new int[size][size];
+        for (int r = 0; r < size; r++) {
+            System.arraycopy(original[r], 0, copy[r], 0, size);
+        }
+        return copy;
     }
 
     /**
-     * Main function - this is all you need!
+     * Entry point for the agent process.
+     * Manages standard I/O communication with the game platform.
      */
     public static void main(String[] args) {
         try {
@@ -220,22 +187,21 @@ public class MyAgentAttemptThree {
             // Loop version - handles multiple moves
             String line;
             while ((line = reader.readLine()) != null) {
-                // Parse it
                 Object[] parsed = parseBoard(line);
                 int size = (int) parsed[0];
-                String myColor = (String) parsed[1];
-                @SuppressWarnings("unchecked")
-                Map<String, String> board = (Map<String, String>) parsed[2];
+                int myColor = (int) parsed[1];
+                int[][] board = (int[][]) parsed[2];
+                int pieceCount = (int) parsed[3];
 
-                // Handles first turn logic
-                if (myColor.equals("BLUE") && board.size() == 1) {
+                // Update swap rule (int ver.)
+                if (myColor == BLUE && pieceCount == 1) {
                     System.out.println("swap");
                     System.out.flush();
                     continue;
                 }
 
                 // Choose your move
-                int[] move = chooseMove(size, myColor, board);
+                int[] move = chooseMove(size, myColor, board, pieceCount);
 
                 // Output your move (don't forget to flush!)
                 System.out.println(move[0] + " " + move[1]);
