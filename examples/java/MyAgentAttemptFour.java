@@ -1,17 +1,59 @@
 import java.util.*;
 
+/**
+ * Hex agent that combines fast tactical checks with heuristic filtering and
+ * time-bounded Monte Carlo simulation. The board is stored as a 1D integer
+ * array for low allocation overhead, strong candidate moves are ranked with
+ * positional and path-based heuristics, and final move selection is refined by
+ * UCB1-guided rollouts.
+ */
 public class MyAgentAttemptFour {
     private static final int EMPTY = 0, RED = 1, BLUE = 2;
+    private static final int INF = 1_000_000;
     private static final Random RNG = new Random();
-    private static final int[][] DIRECTIONS = {
+
+    private static final int[][] DIRS = {
         {-1, 0}, {-1, 1}, {0, 1}, {1, 0}, {1, -1}, {0, -1}
     };
     private static final int[][] BRIDGE_OFFSETS = {
         {-1, -1}, {-1, 2}, {-2, 1}, {1, 1}, {2, -1}, {1, -2}
     };
+    private static final int[] BFS_DR = {-1, 1, 0, 0, -1, 1};
+    private static final int[] BFS_DC = {0, 0, -1, 1, 1, -1};
 
+    private static final class PathInfo {
+        final int distance;
+        final int[] empties;
+        final int emptyCount;
+
+        PathInfo(int distance, int[] empties, int emptyCount) {
+            this.distance = distance;
+            this.empties = empties;
+            this.emptyCount = emptyCount;
+        }
+    }
+
+    /**
+     * Returns the per-move time budget used by the search.
+     * The values stay below the official limits so parsing, output, and JVM
+     * overhead do not cause accidental time forfeits on larger boards.
+     */
+    private static long getTimeLimitMs(int size) {
+        if (size <= 11) return 120;
+        if (size <= 15) return 165;
+        if (size <= 19) return 210;
+        if (size <= 21) return 255;
+        return 800;
+    }
+
+    /**
+     * Runs the stdin/stdout game loop expected by the framework.
+     * Each input line is parsed into a flat board representation, the opening
+     * move is checked against the swap heuristic when the agent is BLUE, and
+     * otherwise the main search routine is asked for the best move to print.
+     */
     public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
+        try (Scanner sc = new Scanner(System.in)) {
         while (sc.hasNextLine()) {
             String line = sc.nextLine();
             if (line.isEmpty()) continue;
@@ -35,7 +77,6 @@ public class MyAgentAttemptFour {
                 }
             }
 
-            // Swap only for strong opening moves near the center.
             if (myColor == BLUE && movesCount == 1 && shouldSwap(size, firstMoveIndex)) {
                 System.out.println("swap");
                 System.out.flush();
@@ -46,8 +87,15 @@ public class MyAgentAttemptFour {
             System.out.println(move[0] + " " + move[1]);
             System.out.flush();
         }
+        }
     }
 
+    /**
+     * Decides whether BLUE should invoke the swap rule after RED's first move.
+     * The rule is intentionally simple: if the first move lands near the board
+     * center, it is treated as a strong opening worth mirroring instead of
+     * playing from a weaker second-player position.
+     */
     private static boolean shouldSwap(int size, int firstMoveIndex) {
         if (firstMoveIndex < 0) return false;
         int row = firstMoveIndex / size;
@@ -57,220 +105,322 @@ public class MyAgentAttemptFour {
         return dist <= Math.max(2, size / 3);
     }
 
-    private static long getThinkTimeMs(int size) {
-        if (size == 11) return 120;
-        if (size == 15) return 170;
-        if (size == 19) return 210;
-        if (size == 21) return 250;
-        return 900;
-    }
-
-    private static int getCandidateLimit(int size) {
-        if (size <= 11) return 12;
-        if (size <= 15) return 16;
-        if (size <= 19) return 20;
-        return 24;
-    }
-
+    /**
+     * Checks whether a candidate cell is adjacent to any existing stone.
+     * This is used during candidate filtering so the rollout budget focuses on
+     * locally relevant moves rather than isolated cells early in the game.
+     */
     private static boolean hasOccupiedNeighbor(int size, int[] board, int idx) {
-        int row = idx / size;
-        int col = idx % size;
-        for (int[] dir : DIRECTIONS) {
-            int nr = row + dir[0];
-            int nc = col + dir[1];
-            if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
-                if (board[nr * size + nc] != EMPTY) return true;
-            }
+        int row = idx / size, col = idx % size;
+        for (int[] d : DIRS) {
+            int nr = row + d[0], nc = col + d[1];
+            if (nr >= 0 && nr < size && nc >= 0 && nc < size && board[nr * size + nc] != EMPTY)
+                return true;
         }
         return false;
     }
 
+    /**
+     * Checks whether a cell lies within a Manhattan-style radius of center.
+     * Center cells remain eligible even when they are not adjacent to stones,
+     * which helps preserve useful opening and early-midgame structure.
+     */
     private static boolean isNearCenter(int size, int idx, int radius) {
-        int row = idx / size;
-        int col = idx % size;
         int center = size / 2;
-        return Math.abs(row - center) + Math.abs(col - center) <= radius;
+        return Math.abs(idx / size - center) + Math.abs(idx % size - center) <= radius;
     }
 
-    private static double scoreMove(int size, int myColor, int[] board, int idx) {
-        int row = idx / size;
-        int col = idx % size;
-        int center = size / 2;
+    /**
+     * Returns the pathfinding cost for a color when evaluating connection paths.
+     * Friendly stones cost 0, empty cells cost 1, and enemy stones are treated
+     * as blocked by assigning an effectively infinite cost.
+     */
+    private static int cellCost(int color, int cell) {
+        if (cell == color) return 0;
+        if (cell == EMPTY) return 1;
+        return INF;
+    }
 
-        int friendlyNeighbors = 0;
-        int enemyNeighbors = 0;
-        int bridgeLinks = 0;
-        int friendlyForwardLinks = 0;
-        int enemyForwardLinks = 0;
+    /**
+     * Checks whether a board index reaches the goal edge for the given color.
+     * RED connects top to bottom, while BLUE connects left to right.
+     */
+    private static boolean isTargetEdge(int size, int color, int idx) {
+        int row = idx / size, col = idx % size;
+        return (color == RED) ? (row == size - 1) : (col == size - 1);
+    }
 
-        for (int[] dir : DIRECTIONS) {
-            int nr = row + dir[0];
-            int nc = col + dir[1];
-            if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
-                int cell = board[nr * size + nc];
-                if (cell == myColor) {
-                    friendlyNeighbors++;
-                    if ((myColor == RED && dir[0] != 0) || (myColor == BLUE && dir[1] != 0)) {
-                        friendlyForwardLinks++;
-                    }
-                } else if (cell != EMPTY) {
-                    enemyNeighbors++;
-                    if ((myColor == RED && dir[1] != 0) || (myColor == BLUE && dir[0] != 0)) {
-                        enemyForwardLinks++;
+    /**
+     * Computes a cheapest connection path for one player using a Dijkstra-style
+     * search over the hex grid. The returned structure records both the total
+     * path cost and the empty cells on that path, which are later used to boost
+     * moves that either advance our own connection or disrupt the opponent's.
+     */
+    private static PathInfo findShortestPath(int size, int color, int[] board) {
+        int n = board.length;
+        int[] dist = new int[n];
+        int[] parent = new int[n];
+        boolean[] used = new boolean[n];
+        Arrays.fill(dist, INF);
+        Arrays.fill(parent, -1);
+
+        for (int i = 0; i < size; i++) {
+            int idx = (color == RED) ? i : i * size;
+            int cost = cellCost(color, board[idx]);
+            if (cost < INF) dist[idx] = cost;
+        }
+
+        int bestTarget = -1;
+        for (int iter = 0; iter < n; iter++) {
+            int u = -1;
+            int best = INF;
+            for (int i = 0; i < n; i++) {
+                if (!used[i] && dist[i] < best) {
+                    best = dist[i];
+                    u = i;
+                }
+            }
+
+            if (u < 0 || best == INF) break;
+            used[u] = true;
+
+            if (isTargetEdge(size, color, u)) {
+                bestTarget = u;
+                break;
+            }
+
+            int row = u / size, col = u % size;
+            for (int[] d : DIRS) {
+                int nr = row + d[0], nc = col + d[1];
+                if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
+                    int v = nr * size + nc;
+                    int step = cellCost(color, board[v]);
+                    if (step >= INF) continue;
+                    int alt = dist[u] + step;
+                    if (alt < dist[v]) {
+                        dist[v] = alt;
+                        parent[v] = u;
                     }
                 }
             }
         }
 
-        for (int[] offset : BRIDGE_OFFSETS) {
-            int nr = row + offset[0];
-            int nc = col + offset[1];
+        if (bestTarget < 0) return new PathInfo(INF, new int[0], 0);
+
+        int[] pathEmpties = new int[n];
+        int emptyCount = 0;
+        for (int curr = bestTarget; curr >= 0; curr = parent[curr]) {
+            if (board[curr] == EMPTY) pathEmpties[emptyCount++] = curr;
+        }
+        return new PathInfo(dist[bestTarget], pathEmpties, emptyCount);
+    }
+
+    /**
+     * Assigns a static heuristic score to a candidate move before simulation.
+     * The score combines center preference, friendly connectivity, enemy
+     * pressure, bridge patterns, corridor alignment, local clustering, and
+     * shortest-path overlap for both players. This stage does not pick the
+     * final move by itself; it narrows the search to promising candidates.
+     */
+    private static double scoreMove(int size, int myColor, int[] board, int idx,
+                                    PathInfo myPath, PathInfo oppPath) {
+        int row = idx / size, col = idx % size;
+        int center = size / 2;
+        int opp = (myColor == RED) ? BLUE : RED;
+
+        int friendly = 0, enemy = 0, bridges = 0;
+
+        for (int[] d : DIRS) {
+            int nr = row + d[0], nc = col + d[1];
             if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
-                if (board[nr * size + nc] == myColor) bridgeLinks++;
+                int cell = board[nr * size + nc];
+                if (cell == myColor) friendly++;
+                else if (cell == opp) enemy++;
             }
         }
 
-        double score = 0.0;
-        score += 2.0 * (size - (Math.abs(row - center) + Math.abs(col - center)));
-        score += 14.0 * friendlyNeighbors;
-        score += 5.0 * friendlyForwardLinks;
-        score += 3.0 * enemyNeighbors;
-        score += 2.0 * enemyForwardLinks;
-        score += 6.0 * bridgeLinks;
-
-        // Favor moves that stay on the player's connection corridor.
-        if (myColor == RED) {
-            score += 2.0 * (size - Math.abs(col - center));
-        } else {
-            score += 2.0 * (size - Math.abs(row - center));
+        for (int[] b : BRIDGE_OFFSETS) {
+            int nr = row + b[0], nc = col + b[1];
+            if (nr >= 0 && nr < size && nc >= 0 && nc < size && board[nr * size + nc] == myColor)
+                bridges++;
         }
 
-        if (friendlyNeighbors >= 2) score += 16.0;
-        if (friendlyNeighbors >= 3) score += 12.0;
+        double score = 2.5 * (size - (Math.abs(row - center) + Math.abs(col - center)));
+        score += 15.0 * friendly + 5.0 * enemy + 7.0 * bridges;
+        if (myColor == RED) score += 3.0 * (size - Math.abs(col - center));
+        else                score += 3.0 * (size - Math.abs(row - center));
+        if (friendly >= 2) score += 20.0;
+        if (friendly >= 3) score += 15.0;
+        if (enemy   >= 2) score += 10.0;
+        if (friendly == 0 && enemy == 0) score -= 25.0;
 
-        // Strongly discourage isolated moves unless they are central opening shapes.
-        if (friendlyNeighbors == 0 && enemyNeighbors == 0) score -= 20.0;
-        if (friendlyNeighbors == 0 && enemyNeighbors > 0) score -= 6.0;
+        for (int i = 0; i < myPath.emptyCount; i++) {
+            if (myPath.empties[i] == idx) {
+                score += 90.0 - 8.0 * myPath.distance;
+                score += Math.max(0.0, 30.0 - 6.0 * myPath.emptyCount);
+                break;
+            }
+        }
+
+        for (int i = 0; i < oppPath.emptyCount; i++) {
+            if (oppPath.empties[i] == idx) {
+                score += 55.0 - 5.0 * oppPath.distance;
+                score += Math.max(0.0, 20.0 - 4.0 * oppPath.emptyCount);
+                break;
+            }
+        }
 
         return score;
     }
 
-    private static boolean isWinningMove(int size, int color, int[] board, int move, int[] simBoard, int[] queue, boolean[] visited) {
-        System.arraycopy(board, 0, simBoard, 0, board.length);
-        simBoard[move] = color;
-        return fastCheckWin(size, color, simBoard, queue, visited);
-    }
-
-    private static int findImmediateWinningMove(int size, int color, int[] emptyIndices, int numEmpty, int[] board,
-                                                int[] simBoard, int[] queue, boolean[] visited) {
+    /**
+     * Tests each empty cell as a one-ply tactical move for the given color.
+     * It is used both to finish immediately winning positions and to block an
+     * opponent move that would otherwise win on the next turn.
+     */
+    private static int findWinOrBlock(int size, int color, int[] empty, int numEmpty,
+                                      int[] board, int[] simBoard, int[] queue, boolean[] visited) {
         for (int i = 0; i < numEmpty; i++) {
-            int move = emptyIndices[i];
-            if (isWinningMove(size, color, board, move, simBoard, queue, visited)) {
-                return move;
-            }
+            int move = empty[i];
+            System.arraycopy(board, 0, simBoard, 0, board.length);
+            simBoard[move] = color;
+            if (fastCheckWin(size, color, simBoard, queue, visited)) return move;
         }
         return -1;
     }
 
+    /**
+     * Selects a move with a staged decision pipeline.
+     * The method first handles trivial board states, then checks immediate
+     * wins and forced blocks, then uses shortest-path information to play
+     * direct connection moves in sharp late-game positions. If no tactical move
+     * is forced, it filters and ranks candidates heuristically, keeps only the
+     * strongest subset, and spends the remaining time on UCB1-guided Monte
+     * Carlo rollouts to choose the move with the best observed win rate.
+     */
     private static int[] chooseMove(int size, int myColor, int[] board) {
-        int[] emptyIndices = new int[board.length];
+        long startTime = System.currentTimeMillis();
+        long timeLimit = getTimeLimitMs(size);
+
+        int[] empty = new int[board.length];
         int numEmpty = 0;
         for (int i = 0; i < board.length; i++) {
-            if (board[i] == EMPTY) emptyIndices[numEmpty++] = i;
+            if (board[i] == EMPTY) empty[numEmpty++] = i;
         }
 
         if (numEmpty == board.length) return new int[]{size / 2, size / 2};
+        if (numEmpty == 1) return new int[]{empty[0] / size, empty[0] % size};
 
         int[] simBoard = new int[board.length];
-        int[] queue = new int[board.length];
+        int[] queue    = new int[board.length];
         boolean[] visited = new boolean[board.length];
 
-        int winningMove = findImmediateWinningMove(size, myColor, emptyIndices, numEmpty, board, simBoard, queue, visited);
-        if (winningMove != -1) {
-            return new int[]{winningMove / size, winningMove % size};
+        int win = findWinOrBlock(size, myColor, empty, numEmpty, board, simBoard, queue, visited);
+        if (win >= 0) return new int[]{win / size, win % size};
+
+        int opp = (myColor == RED) ? BLUE : RED;
+        int block = findWinOrBlock(size, opp, empty, numEmpty, board, simBoard, queue, visited);
+        if (block >= 0) return new int[]{block / size, block % size};
+
+        PathInfo myPath = findShortestPath(size, myColor, board);
+        PathInfo oppPath = findShortestPath(size, opp, board);
+
+        if (myPath.emptyCount > 0 && myPath.emptyCount <= 3) {
+            int bestPathMove = myPath.empties[0];
+            double bestPathScore = Double.NEGATIVE_INFINITY;
+            for (int i = 0; i < myPath.emptyCount; i++) {
+                int idx = myPath.empties[i];
+                double pathScore = scoreMove(size, myColor, board, idx, myPath, oppPath);
+                if (pathScore > bestPathScore) {
+                    bestPathScore = pathScore;
+                    bestPathMove = idx;
+                }
+            }
+            return new int[]{bestPathMove / size, bestPathMove % size};
         }
 
-        int opponent = (myColor == RED) ? BLUE : RED;
-        int blockMove = findImmediateWinningMove(size, opponent, emptyIndices, numEmpty, board, simBoard, queue, visited);
-        if (blockMove != -1) {
-            return new int[]{blockMove / size, blockMove % size};
-        }
-
-        int occupiedCount = board.length - numEmpty;
-        int[] candidateIndices = new int[numEmpty];
-        double[] candidateScores = new double[numEmpty];
-        int candidateCount = 0;
+        int occupied = board.length - numEmpty;
+        int[] cands = new int[numEmpty];
+        double[] scores = new double[numEmpty];
+        int candCount = 0;
 
         for (int i = 0; i < numEmpty; i++) {
-            int idx = emptyIndices[i];
-            boolean nearby = hasOccupiedNeighbor(size, board, idx);
-            if (occupiedCount > 2 && !nearby && !isNearCenter(size, idx, 2)) {
+            int idx = empty[i];
+            if (occupied > 4 && !hasOccupiedNeighbor(size, board, idx) && !isNearCenter(size, idx, 2))
                 continue;
-            }
-            candidateIndices[candidateCount] = idx;
-            candidateScores[candidateCount] = scoreMove(size, myColor, board, idx);
-            candidateCount++;
+            cands[candCount] = idx;
+            scores[candCount] = scoreMove(size, myColor, board, idx, myPath, oppPath);
+            candCount++;
         }
 
-        if (candidateCount == 0) {
+        if (candCount == 0) {
             for (int i = 0; i < numEmpty; i++) {
-                candidateIndices[i] = emptyIndices[i];
-                candidateScores[i] = scoreMove(size, myColor, board, emptyIndices[i]);
+                cands[i] = empty[i];
+                scores[i] = scoreMove(size, myColor, board, empty[i], myPath, oppPath);
             }
-            candidateCount = numEmpty;
+            candCount = numEmpty;
         }
 
-        int topK = Math.min(candidateCount, getCandidateLimit(size));
+        int topK = Math.min(candCount, Math.max(12, Math.min(30, size + 6)));
         for (int i = 0; i < topK; i++) {
             int best = i;
-            for (int j = i + 1; j < candidateCount; j++) {
-                if (candidateScores[j] > candidateScores[best]) {
-                    best = j;
-                }
+            for (int j = i + 1; j < candCount; j++) {
+                if (scores[j] > scores[best]) best = j;
             }
-            double tempScore = candidateScores[i];
-            candidateScores[i] = candidateScores[best];
-            candidateScores[best] = tempScore;
-
-            int tempIdx = candidateIndices[i];
-            candidateIndices[i] = candidateIndices[best];
-            candidateIndices[best] = tempIdx;
+            double ts = scores[i];  scores[i]  = scores[best];  scores[best]  = ts;
+            int    ti = cands[i];   cands[i]   = cands[best];   cands[best]   = ti;
         }
 
-        int[] wins = new int[topK];
+        int[] wins   = new int[topK];
         int[] trials = new int[topK];
-        
-        long deadline = System.nanoTime() + getThinkTimeMs(size) * 1_000_000L;
-
-        // Reuse these arrays to avoid Garbage Collection pauses
         int[] shuffleBox = new int[numEmpty];
+        final double C = 1.414;
 
-        while (System.nanoTime() < deadline) {
-            for (int i = 0; i < topK; i++) {
-                if (simulate(size, myColor, board, emptyIndices, numEmpty, candidateIndices[i], simBoard, shuffleBox, queue, visited)) {
+        for (int i = 0; i < topK; i++) {
+            for (int j = 0; j < 2; j++) {
+                if (simulate(size, myColor, board, empty, numEmpty, cands[i],
+                             simBoard, shuffleBox, queue, visited))
                     wins[i]++;
-                }
                 trials[i]++;
-                if ((i & 15) == 0 && System.nanoTime() >= deadline) break;
             }
         }
+        int total = 2 * topK;
 
-        int bestIdx = 0;
+        while (System.currentTimeMillis() - startTime < timeLimit) {
+            double logN = Math.log(total);
+            int pick = 0;
+            double bestUCB = -1.0;
+            for (int i = 0; i < topK; i++) {
+                double ucb = (double) wins[i] / trials[i] + C * Math.sqrt(logN / trials[i]);
+                if (ucb > bestUCB) { bestUCB = ucb; pick = i; }
+            }
+            if (simulate(size, myColor, board, empty, numEmpty, cands[pick],
+                         simBoard, shuffleBox, queue, visited))
+                wins[pick]++;
+            trials[pick]++;
+            total++;
+        }
+
+        int best = 0;
         double maxRate = -1.0;
         for (int i = 0; i < topK; i++) {
-            if (trials[i] == 0) continue;
             double rate = (double) wins[i] / trials[i];
-            if (rate > maxRate) {
-                maxRate = rate;
-                bestIdx = i;
-            }
+            if (rate > maxRate) { maxRate = rate; best = i; }
         }
 
-        return new int[]{candidateIndices[bestIdx] / size, candidateIndices[bestIdx] % size};
+        return new int[]{cands[best] / size, cands[best] % size};
     }
 
-    private static boolean simulate(int size, int myColor, int[] board, int[] empty, int numEmpty, int firstMove,
-                                    int[] simBoard, int[] shuffleBox, int[] queue, boolean[] visited) {
+    /**
+     * Runs a single random rollout after committing to a candidate first move.
+     * The method copies the board, applies the candidate, shuffles the
+     * remaining empty cells with Fisher-Yates, alternates colors through the
+     * completion, and then checks whether the original player ends up winning.
+     */
+    private static boolean simulate(int size, int myColor, int[] board,
+                                    int[] empty, int numEmpty, int firstMove,
+                                    int[] simBoard, int[] shuffleBox,
+                                    int[] queue, boolean[] visited) {
         System.arraycopy(board, 0, simBoard, 0, board.length);
         simBoard[firstMove] = myColor;
 
@@ -279,12 +429,9 @@ public class MyAgentAttemptFour {
             if (empty[i] != firstMove) shuffleBox[count++] = empty[i];
         }
 
-        // Fast Fisher-Yates
         for (int i = count - 1; i > 0; i--) {
             int j = RNG.nextInt(i + 1);
-            int temp = shuffleBox[i];
-            shuffleBox[i] = shuffleBox[j];
-            shuffleBox[j] = temp;
+            int tmp = shuffleBox[i]; shuffleBox[i] = shuffleBox[j]; shuffleBox[j] = tmp;
         }
 
         int turn = (myColor == RED) ? BLUE : RED;
@@ -296,7 +443,14 @@ public class MyAgentAttemptFour {
         return fastCheckWin(size, myColor, simBoard, queue, visited);
     }
 
-    private static boolean fastCheckWin(int size, int color, int[] board, int[] queue, boolean[] visited) {
+    /**
+     * Performs a fast BFS-based win check on the flat board representation.
+     * The search starts from the player's home edge, expands through connected
+     * stones of the same color, and succeeds as soon as it reaches the
+     * opposite edge.
+     */
+    private static boolean fastCheckWin(int size, int color, int[] board,
+                                        int[] queue, boolean[] visited) {
         int head = 0, tail = 0;
         Arrays.fill(visited, false);
 
@@ -308,17 +462,12 @@ public class MyAgentAttemptFour {
             }
         }
 
-        int[] dr = {-1, 1, 0, 0, -1, 1};
-        int[] dc = {0, 0, -1, 1, 1, -1};
-
         while (head < tail) {
             int curr = queue[head++];
             int r = curr / size, c = curr % size;
-
             if ((color == RED && r == size - 1) || (color == BLUE && c == size - 1)) return true;
-
             for (int i = 0; i < 6; i++) {
-                int nr = r + dr[i], nc = c + dc[i];
+                int nr = r + BFS_DR[i], nc = c + BFS_DC[i];
                 if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
                     int nIdx = nr * size + nc;
                     if (!visited[nIdx] && board[nIdx] == color) {

@@ -1,15 +1,6 @@
 import java.util.*;
 
-/**
- * Hex Game Agent utilizing a time-bounded Flat Monte Carlo simulation engine.
- * Optimized with 1D array representations and lightweight DFS for zero-GC rollouts.
- */
 public class MyAgentAttemptThree {
-
-    /**
-     * Parse the board state from input line.
-     * Return Object array: [size(int), myColor(String), board(Map)]
-     */
     private static final int EMPTY = 0;
     private static final int RED = 1;
     private static final int BLUE = 2;
@@ -32,7 +23,6 @@ public class MyAgentAttemptThree {
         int [][]board = new int[size][size];
         int pieceCount = 0;
 
-        // Parse existing moves
         if (parts.length == 3 && !parts[2].isEmpty()) {
             String[] movesStr = parts[2].split(",");
             for (String move : movesStr) {
@@ -53,7 +43,6 @@ public class MyAgentAttemptThree {
      */
     private static boolean checkWin(int size, int[][] board) {
         boolean[][] visited = new boolean[size][size];
-        // Check if Red wins
         for (int c = 0; c < size; c++) {
             if (board[0][c] == RED && !visited[0][c]) {
                 if (dfs(0, c, RED, size, board, visited)) return true;
@@ -110,7 +99,6 @@ public class MyAgentAttemptThree {
      * Determines the optimal move using a time-bounded Flat Monte Carlo search.
      */
     private static int[] chooseMove(int size, int myColor, int[][] board, int pieceCount) {
-        // Center opening for RED
         if (myColor == RED && pieceCount == 0) {
             return new int[] { size / 2, size / 2 };
         }
@@ -126,6 +114,19 @@ public class MyAgentAttemptThree {
 
         long startTime = System.currentTimeMillis();
         long timeLimit = 120;
+
+        if(size<=11){
+            timeLimit=120;
+        }
+        else if(size<=15){
+            timeLimit=170;
+        }
+        else if(size<=19){
+            timeLimit=220;
+        }
+        else if(size <= 21){
+            timeLimit=270;
+        }
 
         int[] wins = new int[emptyCount];
         int[] visits = new int[emptyCount];
@@ -151,7 +152,6 @@ public class MyAgentAttemptThree {
             }
         }
 
-        // Aggregate statistics and select the move with the highest win rate
         int bestSpot = emptySpots[0];
         double bestRate = -1;
         for (int i = 0; i < emptyCount; i++) {
@@ -166,6 +166,9 @@ public class MyAgentAttemptThree {
         return new int[] { bestSpot / size, bestSpot % size };
     }
 
+    /**
+     * Creates a deep copy of the current board.
+     */
     private static int[][] copyBoard(int[][] original, int size) {
         int[][] copy = new int[size][size];
         for (int r = 0; r < size; r++) {
@@ -180,11 +183,9 @@ public class MyAgentAttemptThree {
      */
     public static void main(String[] args) {
         try {
-            // Use BufferedReader for better subprocess compatibility
             java.io.BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(System.in));
 
-            // Loop version - handles multiple moves
             String line;
             while ((line = reader.readLine()) != null) {
                 Object[] parsed = parseBoard(line);
@@ -193,17 +194,14 @@ public class MyAgentAttemptThree {
                 int[][] board = (int[][]) parsed[2];
                 int pieceCount = (int) parsed[3];
 
-                // Update swap rule (int ver.)
                 if (myColor == BLUE && pieceCount == 1) {
                     System.out.println("swap");
                     System.out.flush();
                     continue;
                 }
 
-                // Choose your move
                 int[] move = chooseMove(size, myColor, board, pieceCount);
 
-                // Output your move (don't forget to flush!)
                 System.out.println(move[0] + " " + move[1]);
                 System.out.flush();
             }
