@@ -47,50 +47,6 @@ public class MyAgentAttemptFour {
     }
 
     /**
-     * Runs the stdin/stdout game loop expected by the framework.
-     * Each input line is parsed into a flat board representation, the opening
-     * move is checked against the swap heuristic when the agent is BLUE, and
-     * otherwise the main search routine is asked for the best move to print.
-     */
-    public static void main(String[] args) {
-        try (Scanner sc = new Scanner(System.in)) {
-        while (sc.hasNextLine()) {
-            String line = sc.nextLine();
-            if (line.isEmpty()) continue;
-
-            String[] parts = line.trim().split("\\s+", 3);
-            int size = Integer.parseInt(parts[0]);
-            int myColor = parts[1].equals("RED") ? RED : BLUE;
-
-            int[] board = new int[size * size];
-            int movesCount = 0;
-            int firstMoveIndex = -1;
-            if (parts.length == 3 && !parts[2].isEmpty()) {
-                for (String move : parts[2].split(",")) {
-                    String[] m = move.split(":");
-                    int row = Integer.parseInt(m[0]);
-                    int col = Integer.parseInt(m[1]);
-                    int idx = row * size + col;
-                    board[idx] = m[2].equals("R") ? RED : BLUE;
-                    if (movesCount == 0) firstMoveIndex = idx;
-                    movesCount++;
-                }
-            }
-
-            if (myColor == BLUE && movesCount == 1 && shouldSwap(size, firstMoveIndex)) {
-                System.out.println("swap");
-                System.out.flush();
-                continue;
-            }
-
-            int[] move = chooseMove(size, myColor, board);
-            System.out.println(move[0] + " " + move[1]);
-            System.out.flush();
-        }
-        }
-    }
-
-    /**
      * Decides whether BLUE should invoke the swap rule after RED's first move.
      * The rule is intentionally simple: if the first move lands near the board
      * center, it is treated as a strong opening worth mirroring instead of
@@ -123,11 +79,11 @@ public class MyAgentAttemptFour {
     /**
      * Checks whether a cell lies within a Manhattan-style radius of center.
      * Center cells remain eligible even when they are not adjacent to stones,
-     * which helps preserve useful opening and early-midgame structure.
+     * which helps preserve useful opening and early-mid game structure.
      */
-    private static boolean isNearCenter(int size, int idx, int radius) {
+    private static boolean isNearCenter(int size, int idx) {
         int center = size / 2;
-        return Math.abs(idx / size - center) + Math.abs(idx % size - center) <= radius;
+        return Math.abs(idx / size - center) + Math.abs(idx % size - center) <= 2;
     }
 
     /**
@@ -151,7 +107,7 @@ public class MyAgentAttemptFour {
     }
 
     /**
-     * Computes a cheapest connection path for one player using a Dijkstra-style
+     * Computes the cheapest connection path for one player using a Dijkstra-style
      * search over the hex grid. The returned structure records both the total
      * path cost and the empty cells on that path, which are later used to boost
      * moves that either advance our own connection or disrupt the opponent's.
@@ -346,7 +302,7 @@ public class MyAgentAttemptFour {
 
         for (int i = 0; i < numEmpty; i++) {
             int idx = empty[i];
-            if (occupied > 4 && !hasOccupiedNeighbor(size, board, idx) && !isNearCenter(size, idx, 2))
+            if (occupied > 4 && !hasOccupiedNeighbor(size, board, idx) && !isNearCenter(size, idx))
                 continue;
             cands[candCount] = idx;
             scores[candCount] = scoreMove(size, myColor, board, idx, myPath, oppPath);
@@ -478,5 +434,79 @@ public class MyAgentAttemptFour {
             }
         }
         return false;
+    }
+
+    /**
+     * JVM Warmup Routine:
+     * Forces the Java JIT compiler to pre-compile the highly-frequent
+     * 'simulate' and 'fastCheckWin' methods into optimized machine code
+     * to eliminate the compilation delay that causes the BLUE player
+     * to time out on its first turn.
+     */
+    private static void warmupJVM() {
+        int size = 11;
+        int[] board = new int[size * size];
+        int numEmpty = size * size;
+        int[] empty = new int[numEmpty];
+
+        for (int i = 0; i < numEmpty; i++) {
+            empty[i] = i;
+        }
+
+        int[] simBoard = new int[board.length];
+        int[] shuffleBox = new int[board.length];
+        int[] queue = new int[board.length];
+        boolean[] visited = new boolean[board.length];
+
+        // Execute dummy simulations to trigger JIT Compiler optimizations
+        for (int i = 0; i < 2000; i++) {
+            simulate(size, RED, board, empty, numEmpty, empty[0],
+                simBoard, shuffleBox, queue, visited);
+        }
+    }
+
+    /**
+     * Runs the stdin/stdout game loop expected by the framework.
+     * Each input line is parsed into a flat board representation, the opening
+     * move is checked against the swap heuristic when the agent is BLUE, and
+     * otherwise the main search routine is asked for the best move to print.
+     */
+    public static void main(String[] args) {
+        warmupJVM();
+        try (Scanner sc = new Scanner(System.in)) {
+            while (sc.hasNextLine()) {
+                String line = sc.nextLine();
+                if (line.isEmpty()) continue;
+
+                String[] parts = line.trim().split("\\s+", 3);
+                int size = Integer.parseInt(parts[0]);
+                int myColor = parts[1].equals("RED") ? RED : BLUE;
+
+                int[] board = new int[size * size];
+                int movesCount = 0;
+                int firstMoveIndex = -1;
+                if (parts.length == 3 && !parts[2].isEmpty()) {
+                    for (String move : parts[2].split(",")) {
+                        String[] m = move.split(":");
+                        int row = Integer.parseInt(m[0]);
+                        int col = Integer.parseInt(m[1]);
+                        int idx = row * size + col;
+                        board[idx] = m[2].equals("R") ? RED : BLUE;
+                        if (movesCount == 0) firstMoveIndex = idx;
+                        movesCount++;
+                    }
+                }
+
+                if (myColor == BLUE && movesCount == 1 && shouldSwap(size, firstMoveIndex)) {
+                    System.out.println("swap");
+                    System.out.flush();
+                    continue;
+                }
+
+                int[] move = chooseMove(size, myColor, board);
+                System.out.println(move[0] + " " + move[1]);
+                System.out.flush();
+            }
+        }
     }
 }
