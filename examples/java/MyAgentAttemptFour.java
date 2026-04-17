@@ -296,35 +296,35 @@ public class MyAgentAttemptFour {
         }
 
         int occupied = board.length - numEmpty;
-        int[] cands = new int[numEmpty];
+        int[] candidates = new int[numEmpty];
         double[] scores = new double[numEmpty];
-        int candCount = 0;
+        int candidatesCount = 0;
 
         for (int i = 0; i < numEmpty; i++) {
             int idx = empty[i];
             if (occupied > 4 && !hasOccupiedNeighbor(size, board, idx) && !isNearCenter(size, idx))
                 continue;
-            cands[candCount] = idx;
-            scores[candCount] = scoreMove(size, myColor, board, idx, myPath, oppPath);
-            candCount++;
+            candidates[candidatesCount] = idx;
+            scores[candidatesCount] = scoreMove(size, myColor, board, idx, myPath, oppPath);
+            candidatesCount++;
         }
 
-        if (candCount == 0) {
+        if (candidatesCount == 0) {
             for (int i = 0; i < numEmpty; i++) {
-                cands[i] = empty[i];
+                candidates[i] = empty[i];
                 scores[i] = scoreMove(size, myColor, board, empty[i], myPath, oppPath);
             }
-            candCount = numEmpty;
+            candidatesCount = numEmpty;
         }
 
-        int topK = Math.min(candCount, Math.max(12, Math.min(30, size + 6)));
+        int topK = Math.min(candidatesCount, Math.max(12, Math.min(30, size + 6)));
         for (int i = 0; i < topK; i++) {
             int best = i;
-            for (int j = i + 1; j < candCount; j++) {
+            for (int j = i + 1; j < candidatesCount; j++) {
                 if (scores[j] > scores[best]) best = j;
             }
             double ts = scores[i];  scores[i]  = scores[best];  scores[best]  = ts;
-            int    ti = cands[i];   cands[i]   = cands[best];   cands[best]   = ti;
+            int    ti = candidates[i];   candidates[i]   = candidates[best];   candidates[best]   = ti;
         }
 
         int[] wins   = new int[topK];
@@ -334,7 +334,7 @@ public class MyAgentAttemptFour {
 
         for (int i = 0; i < topK; i++) {
             for (int j = 0; j < 2; j++) {
-                if (simulate(size, myColor, board, empty, numEmpty, cands[i],
+                if (simulate(size, myColor, board, empty, numEmpty, candidates[i],
                              simBoard, shuffleBox, queue, visited))
                     wins[i]++;
                 trials[i]++;
@@ -350,7 +350,7 @@ public class MyAgentAttemptFour {
                 double ucb = (double) wins[i] / trials[i] + C * Math.sqrt(logN / trials[i]);
                 if (ucb > bestUCB) { bestUCB = ucb; pick = i; }
             }
-            if (simulate(size, myColor, board, empty, numEmpty, cands[pick],
+            if (simulate(size, myColor, board, empty, numEmpty, candidates[pick],
                          simBoard, shuffleBox, queue, visited))
                 wins[pick]++;
             trials[pick]++;
@@ -364,7 +364,7 @@ public class MyAgentAttemptFour {
             if (rate > maxRate) { maxRate = rate; best = i; }
         }
 
-        return new int[]{cands[best] / size, cands[best] % size};
+        return new int[]{candidates[best] / size, candidates[best] % size};
     }
 
     /**
