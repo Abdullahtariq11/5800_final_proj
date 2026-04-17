@@ -4,6 +4,17 @@
 - Abdullah Tariq
 - Chendong Yu
 
+**Main Features & Optimizations:**
+
+Our final version incorporates a highly optimized time-bounded Monte Carlo Tree Search guided by UCB1 featuring the following features:
+
+- **Dijkstra-Based Shortest Path & Heuristic Filtering**: Utilizes a Dijkstra-style BFS and heuristic functions to find the cheapest connection path.
+
+- **Zero-GC Rollouts & 1D Flat Board**: Flattens the board into a 1D integer array in order to strictly adhere to the 64MB memory limit.
+
+- **Dynamic Time-Bounding**: Tracks elapsed time via System.currentTimeMillis() and scales its internal time limits safely below the framework's strict cut-offs.
+
+- **First-Turn Swap Rule**: Analyzes RED's opening move and invokes the swap rule to get CENTRAL position if RED opens within a strict Manhattan radius of the board's center.
 ---
 
 ## Table of Contents
