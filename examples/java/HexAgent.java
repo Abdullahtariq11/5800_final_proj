@@ -1,13 +1,22 @@
 import java.util.*;
 
 /**
- * Hex agent that combines fast tactical checks with heuristic filtering and
- * time-bounded Monte Carlo simulation. The board is stored as a 1D integer
- * array for low allocation overhead, strong candidate moves are ranked with
- * positional and path-based heuristics, and final move selection is refined by
- * UCB1-guided rollouts.
+ * ============================================================================
+ * CS 5800 Final Project: Final Code Submission
+ * Group Members: Abdullah Tariq, Chendong Yu
+ * ============================================================================
+ * HexAgent: A time-bounded Monte Carlo Tree Search agent.
+
+ * Architecture & Optimizations:
+
+ * - 1D Flat Board: The board is stored as a 1D integer array for low memory allocation overhead and improved cache locality.
+
+ * - Zero-GC Rollouts: All memory structures are pre-allocated outside the simulation hot-loop.
+
+ * - Heuristic Filtering: Strong candidate moves are ranked using criteria such as
+ * connectivity and Dijkstra-based shortest-path heuristics before UCB1 rollouts.
  */
-public class MyAgentAttemptFour {
+public class HexAgent {
     private static final int EMPTY = 0, RED = 1, BLUE = 2;
     private static final int INF = 1_000_000;
     private static final Random RNG = new Random();
