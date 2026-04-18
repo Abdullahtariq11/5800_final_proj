@@ -25,6 +25,7 @@ Our final version incorporates a highly optimized time-bounded Monte Carlo Tree 
 5. [Testing Your Agent](#5-testing-your-agent)
 6. [Constraints & Limits](#6-constraints--limits)
 7. [Debugging Tips](#7-debugging-tips)
+8. [Testing](#8-testing)
 
 ---
 
@@ -404,3 +405,29 @@ Use **stderr** for all debug output:
 System.err.println("DEBUG: Evaluating position " + row + "," + col);
 System.err.flush();
 ```
+
+## 8. Testing
+ 
+Build `HexAgent` before running the tests:
+ 
+```bash
+javac examples/java/HexAgent.java
+```
+
+Run the `HexAgent` test suite:
+
+```bash
+python3 -m unittest tests.test_hex_agent
+```
+
+### What The Tests Cover
+
+The `HexAgent` tests focus mainly on framework-related constraints rather than proving perfect gameplay. In particular, they check:
+- time-limit compliance
+- memory-limit compliance
+- correct subprocess execution through the game framework
+
+The tests cover the official project board sizes `11`, `15`, `19`, and `21` for resource-sensitive scenarios, and also include a few deterministic tactical checks:
+- swap against a strong central opening
+- immediate winning move
+- immediate blocking move
