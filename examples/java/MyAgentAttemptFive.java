@@ -5,7 +5,7 @@ import java.util.*;
  * CS 5800 Final Project: MyAgentAttemptFive.java (test)
  * ============================================================================
  */
-public class MyAgentAttemptThree {
+public class MyAgentAttemptFive {
     private static final int EMPTY = 0;
     private static final int RED = 1;
     private static final int BLUE = 2;

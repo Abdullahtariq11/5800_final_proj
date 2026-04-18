@@ -249,11 +249,30 @@ public class MyAgentAttemptThree {
     }
 
     /**
+     * JVM Warmup Routine
+     */
+    private static void warmupJVM() {
+        int size = 11;
+        int[][] tempBoard = new int[size][size];
+        int[] rolloutEmptySpots = new int[size * size];
+        boolean[][] visited = new boolean[size][size];
+
+        // 1000 iterations and C2 compiler
+        for (int i = 0; i < 1000; i++) {
+            for (int r = 0; r < size; r++) {
+                Arrays.fill(tempBoard[r], EMPTY);
+            }
+            simulateRandomGame(size, tempBoard, RED, rolloutEmptySpots, visited);
+        }
+    }
+
+    /**
      * Entry point for the agent process.
      * Continuously reads state updates from stdin, computes optimal responses,
      * and flushes coordinates to stdout as per the communication protocol.
      */
     public static void main(String[] args) {
+        warmupJVM();
         try {
             java.io.BufferedReader reader = new java.io.BufferedReader(
                 new java.io.InputStreamReader(System.in));
